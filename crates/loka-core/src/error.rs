@@ -10,7 +10,7 @@ pub enum LokaError {
     #[error("connection not found: {0}")]
     ConnectionNotFound(String),
 
-    #[error("database error: {0}")]
+    #[error("{0}")]
     Database(String),
 
     #[error("internal error: {0}")]

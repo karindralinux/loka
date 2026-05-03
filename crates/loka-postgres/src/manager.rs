@@ -37,7 +37,10 @@ impl ConnectionManager {
         println!("[POSTGRES] Testing connection: host={} dbname={}", cfg.host, cfg.database);
         let (_client, connection) = pg_cfg.connect(NoTls)
             .await
-            .map_err(|e| LokaError::Database(format!("connect test failed: {e}")))?;
+            .map_err(|e| {
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
+            })?;
 
         // drive connection briefly
         tokio::spawn(async move {
@@ -55,7 +58,8 @@ impl ConnectionManager {
             .await
             .map_err(|e| {
                 eprintln!("[POSTGRES] Connection FAILED: {}", e);
-                LokaError::Database(format!("connect failed: {e}"))
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
             })?;
 
         tokio::spawn(async move {
@@ -90,9 +94,8 @@ impl ConnectionManager {
             .prepare(sql)
             .await
             .map_err(|e| {
-                let code = e.code().map(|c| c.code()).unwrap_or("none");
-                eprintln!("[POSTGRES] Prepare Error: {} (code: {})\nSQL: {}", e, code, sql);
-                LokaError::Database(format!("prepare failed: {e} (code: {code})\nSQL: {sql}"))
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
             })?;
 
         let columns = stmt
@@ -107,7 +110,10 @@ impl ConnectionManager {
         let rows_pg = client
             .query(&stmt, &[])
             .await
-            .map_err(|e| LokaError::Database(format!("query failed: {e}")))?;
+            .map_err(|e| {
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
+            })?;
 
         // MVP: convert each cell to a string-ish JSON value.
         // Later we can add proper type decoding (numbers/bools/json/timestamps/etc).
@@ -185,6 +191,34 @@ impl ConnectionManager {
                 }
             }
 
+            "uuid" => row
+                .try_get::<usize, Option<uuid::Uuid>>(idx)
+                .ok()
+                .flatten()
+                .map(|v| Json::String(v.to_string()))
+                .unwrap_or(Json::Null),
+
+            "timestamp" => row
+                .try_get::<usize, Option<chrono::NaiveDateTime>>(idx)
+                .ok()
+                .flatten()
+                .map(|v| Json::String(v.to_string()))
+                .unwrap_or(Json::Null),
+
+            "timestamptz" => row
+                .try_get::<usize, Option<chrono::DateTime<chrono::Utc>>>(idx)
+                .ok()
+                .flatten()
+                .map(|v| Json::String(v.to_string()))
+                .unwrap_or(Json::Null),
+
+            "date" => row
+                .try_get::<usize, Option<chrono::NaiveDate>>(idx)
+                .ok()
+                .flatten()
+                .map(|v| Json::String(v.to_string()))
+                .unwrap_or(Json::Null),
+
             // default: treat as string
             _ => row
                 .try_get::<usize, Option<String>>(idx)
@@ -206,8 +240,8 @@ impl ConnectionManager {
             )
             .await
             .map_err(|e| {
-                eprintln!("[POSTGRES] List Tables Error: {}", e);
-                LokaError::Database(format!("list tables failed: {e}"))
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
             })?;
 
         // print this query
@@ -244,7 +278,10 @@ impl ConnectionManager {
                 &[&table.schema, &table.name],
             )
             .await
-            .map_err(|e| LokaError::Database(format!("pk fetch failed: {e}")))?;
+            .map_err(|e| {
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
+            })?;
 
         let pks: Vec<String> = rows
             .into_iter()
@@ -290,9 +327,8 @@ impl ConnectionManager {
             .prepare(&sql)
             .await
             .map_err(|e| {
-                let code = e.code().map(|c| c.code()).unwrap_or("none");
-                eprintln!("[POSTGRES] Grid Prepare Error: {} (code: {})\nSQL: {}", e, code, sql);
-                LokaError::Database(format!("grid prepare failed: {e} (code: {code})\nSQL: {sql}"))
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
             })?;
 
         let columns = stmt
@@ -307,7 +343,10 @@ impl ConnectionManager {
         let rows_pg = client
             .query(&stmt, &[&req.limit, &req.offset])
             .await
-            .map_err(|e| LokaError::Database(format!("grid query failed: {e}")))?;
+            .map_err(|e| {
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
+            })?;
 
         let mut rows = Vec::with_capacity(rows_pg.len());
         for r in rows_pg.iter() {
@@ -340,14 +379,14 @@ impl ConnectionManager {
         for (i, (col, _)) in req.pk.iter().enumerate() {
             let arg_i = i + 2;
             where_parts.push(format!(
-                r#""{}" = ${}"#,
+                r#""{}"::text = ${}::text"#,
                 col.replace('"', r#""""#),
                 arg_i
             ));
         }
 
         let sql = format!(
-            r#"UPDATE "{}"."{}" SET "{}" = $1 WHERE {}"#,
+            r#"UPDATE "{}"."{}" SET "{}" = $1::text WHERE {}"#,
             req.table.schema.replace('"', r#""""#),
             req.table.name.replace('"', r#""""#),
             req.column.replace('"', r#""""#),
@@ -376,9 +415,16 @@ impl ConnectionManager {
             .execute(&sql, &bind)
             .await
             .map_err(|e| {
-                eprintln!("[POSTGRES] Grid Update Error: {}\nSQL: {}", e, sql);
-                LokaError::Database(format!("grid update failed: {e}\nSQL: {sql}"))
+                let msg = e.as_db_error().map(|db| db.message().to_string()).unwrap_or_else(|| e.to_string());
+                LokaError::Database(msg)
             })?;
+
+        if n == 0 {
+            return Err(LokaError::Database(
+                "no rows were updated. ensure the primary key hasn't changed or been deleted."
+                    .into(),
+            ));
+        }
 
         Ok(n)
     }
