@@ -1,42 +1,72 @@
-# sv
+# Loka
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+A modern, lightweight, and high-performance PostgreSQL client built for developers who value speed and aesthetics.
 
-## Creating a project
+Loka combines the power of **Rust** and **Svelte 5** to provide a seamless database management experience within a native desktop environment.
 
-If you're seeing this, you've probably already done this step. Congrats!
+## ✨ Features
 
-```sh
-# create a new project
-npx sv create my-app
+- **🚀 Native Performance**: Built with Tauri and Rust for a footprint that's as small as it is fast.
+- **⚡ Reactive UI**: Powered by Svelte 5 runes for a truly fluid and responsive interface.
+- **📊 Intelligent Data Grid**:
+  - Full CRUD support directly from the grid.
+  - **Staging Workflow**: Batch your edits and review changes before committing to the database.
+  - Column resizing and persistent layout.
+  - Efficient pagination for large datasets.
+- **📁 Workspace Management**:
+  - Multi-tab support to work on multiple tables simultaneously.
+  - Schema-aware table browsing with real-time filtering.
+  - Primary key detection for safe data manipulation.
+- **🎨 Premium Aesthetics**: A meticulously crafted dark theme with vibrant accents and smooth animations.
+
+## 🛠 Tech Stack
+
+- **Frontend**: [Svelte 5](https://svelte.dev/) (Runes), [Vite](https://vitejs.dev/)
+- **Desktop Bridge**: [Tauri 2.0](https://tauri.app/)
+- **Backend**: [Rust](https://www.rust-lang.org/)
+- **Database**: [PostgreSQL](https://www.postgresql.org/)
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) (v20+)
+- [Rust](https://www.rust-lang.org/tools/install)
+- [npm](https://www.npmjs.com/) / [pnpm](https://pnpm.io/)
+
+### Development
+
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+2. **Run in development mode**:
+   ```bash
+   npm run tauri dev
+   ```
+
+### Building
+
+To create a production-ready desktop application:
+
+```bash
+npm run tauri build
 ```
 
-To recreate this project with the same configuration:
+## 🗺 Roadmap
 
-```sh
-# recreate this project
-pnpm dlx sv@0.15.1 create --template minimal --types ts --install pnpm loka
-```
+Loka aims to become a universal database client. Future goals include:
 
-## Developing
+- [ ] **Expanded Database Support**:
+  - [ ] **MySQL / MariaDB** integration.
+  - [ ] **SQL Server (MSSQL)** support.
+  - [ ] **SQLite** for local development.
+  - [ ] **Redis** key-value browsing.
+- [ ] **SQL Workbench**: A robust editor for custom queries with syntax highlighting and autocomplete.
+- [ ] **Data Visualization**: Generate ER diagrams and schema maps.
+- [ ] **Import/Export**: Support for CSV, JSON, and SQL dump formats.
 
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## 📜 License
 
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+MIT
