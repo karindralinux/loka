@@ -22,9 +22,13 @@ function applyTheme(theme: Theme) {
   localStorage.setItem("loka-theme", theme);
 }
 
-// Apply on load (before first render)
-let currentTheme: Theme = getSavedTheme();
-if (browser) applyTheme(currentTheme);
+let currentTheme: Theme = "light";
+
+/** Call once on app mount (client only) to read saved preference and apply it. */
+export function initTheme(): void {
+  currentTheme = getSavedTheme();
+  applyTheme(currentTheme);
+}
 
 export function getTheme(): Theme {
   return currentTheme;

@@ -98,8 +98,9 @@
 
   function pkForRow(row: unknown[]): [string, unknown][] {
     if (!grid) return [];
-    return grid.pk_columns.map((pk) => {
-      const idx = grid!.columns.findIndex((c) => c.name === pk);
+    const currentGrid = grid;
+    return currentGrid.pk_columns.map((pk) => {
+      const idx = currentGrid.columns.findIndex((c) => c.name === pk);
       return [pk, idx >= 0 ? row[idx] : null];
     });
   }

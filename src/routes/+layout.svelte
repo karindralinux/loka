@@ -1,12 +1,18 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import favicon from "$lib/assets/favicon.svg";
 	import "$lib/ui/tokens.css";
 	import "$lib/ui/base.css";
-	import { getTheme, toggleTheme } from "$lib/stores/theme";
+	import { initTheme, getTheme, toggleTheme } from "$lib/stores/theme";
 
 	let { children } = $props();
 
-	let theme = $state(getTheme());
+	let theme = $state<"light" | "dark">("light");
+
+	onMount(() => {
+		initTheme();
+		theme = getTheme();
+	});
 
 	function handleToggle() {
 		theme = toggleTheme();

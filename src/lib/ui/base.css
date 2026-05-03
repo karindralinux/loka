@@ -78,7 +78,7 @@ select {
 }
 
 /* --- App root --- */
-#svelte {
+:root {
   display: flex;
   flex-direction: column;
   height: 100%;
