@@ -1,0 +1,86 @@
+/* ============================================================
+   Loka Base Styles
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--color-text);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+  user-select: none;
+}
+
+/* Allow text selection inside grid cells and inputs */
+input,
+textarea,
+[data-selectable] {
+  user-select: text;
+}
+
+/* --- Focus ring --- */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* --- Selection --- */
+::selection {
+  background: var(--color-accent-subtle);
+  color: var(--color-text);
+}
+
+/* --- Scrollbar (WebKit) --- */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-divider);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-faint);
+}
+
+/* --- Reset buttons --- */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* --- Reset inputs --- */
+input,
+textarea,
+select {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  color: var(--color-text);
+}
+
+/* --- App root --- */
+#svelte {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
