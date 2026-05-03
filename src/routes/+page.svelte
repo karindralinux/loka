@@ -55,7 +55,10 @@
   async function listTables() {
     error = null;
     tableList = [];
-    if (!runtimeId) { error = "Not connected"; return; }
+    if (!runtimeId) {
+      error = "Not connected";
+      return;
+    }
     busy = true;
     try {
       tableList = await pgListTables(runtimeId, schema.trim() || "public");
@@ -69,8 +72,14 @@
   async function loadGrid() {
     error = null;
     grid = null;
-    if (!runtimeId) { error = "Not connected"; return; }
-    if (!schema.trim() || !table.trim()) { error = "Schema and table are required"; return; }
+    if (!runtimeId) {
+      error = "Not connected";
+      return;
+    }
+    if (!schema.trim() || !table.trim()) {
+      error = "Schema and table are required";
+      return;
+    }
     busy = true;
     try {
       const req: GridPageRequest = {

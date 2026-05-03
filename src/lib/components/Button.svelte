@@ -1,13 +1,11 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import type { HTMLButtonAttributes } from "svelte/elements";
 
-  interface Props {
+  interface Props extends Omit<HTMLButtonAttributes, "type"> {
     variant?: "default" | "primary";
-    disabled?: boolean;
     type?: "button" | "submit" | "reset";
-    onclick?: (e: MouseEvent) => void;
     children: Snippet;
-    [key: string]: unknown;
   }
 
   let {

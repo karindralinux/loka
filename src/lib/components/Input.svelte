@@ -1,15 +1,9 @@
 <script lang="ts">
-  interface Props {
+  import type { HTMLInputAttributes } from "svelte/elements";
+
+  interface Props extends HTMLInputAttributes {
     value?: string | number;
-    type?: string;
-    placeholder?: string;
-    id?: string;
-    disabled?: boolean;
-    readonly?: boolean;
     class?: string;
-    onblur?: (e: FocusEvent) => void;
-    oninput?: (e: Event) => void;
-    [key: string]: unknown;
   }
 
   let {
