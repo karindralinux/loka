@@ -225,6 +225,29 @@ impl ConnectionManager {
         Ok(tables)
     }
 
+    pub async fn list_schemas(&self, id: &ConnectionId) -> Result<Vec<String>> {
+        println!("[POSTGRES] Listing schemas");
+        let client = self.get(id)?;
+
+        let rows = client
+            .query(
+                "SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT IN ('information_schema') AND schema_name NOT LIKE 'pg_%' ORDER BY schema_name",
+                &[],
+            )
+            .await
+            .map_err(|e| {
+                eprintln!("[POSTGRES] List Schemas Error: {}", e);
+                LokaError::Database(format!("list schemas failed: {e}"))
+            })?;
+
+        let schemas: Vec<String> = rows
+            .into_iter()
+            .filter_map(|r| r.try_get::<_, String>(0).ok())
+            .collect();
+        println!("[POSTGRES] Found schemas: {:?}", schemas);
+        Ok(schemas)
+    }
+
     pub async fn pk_columns(&self, id: &ConnectionId, table: &TableId) -> Result<Vec<String>> {
         let client = self.get(id)?;
 

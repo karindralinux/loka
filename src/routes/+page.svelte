@@ -1,22 +1,36 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import AppShell from "$lib/components/AppShell.svelte";
   import Button from "$lib/components/Button.svelte";
   import Input from "$lib/components/Input.svelte";
   import Panel from "$lib/components/Panel.svelte";
   import {
-    pgConnect,
-    pgListTables,
+    connectionsConnect,
+    connectionsDelete,
+    connectionsList,
+    connectionsSave,
+    connectionsTest,
+    connectionsUpdate,
     pgGridPage,
     pgGridUpdate,
+    pgListSchemas,
+    pgListTables,
   } from "$lib/ipc/postgres";
   import type {
     ConnectionConfig,
     GridPage,
     GridPageRequest,
     GridUpdateRequest,
+    SavedConnection,
+    SavedConnectionId,
+    SavedConnectionInput,
+    SavedConnectionUpdate,
   } from "$lib/types/pg";
 
-  // --- Connection state ---
+  // ---- Connection screen state ----
+  let savedConnections = $state<SavedConnection[]>([]);
+  let selectedId = $state<SavedConnectionId | null>(null);
+  let formName = $state("Local Postgres");
   let cfg = $state<ConnectionConfig>({
     engine: "Postgres",
     host: "127.0.0.1",
@@ -26,73 +40,208 @@
     password: "",
     ssl_mode: "disable",
   });
+  let connectionNotice = $state<string | null>(null);
+  let connectionError = $state<string | null>(null);
+  let connectionBusy = $state(false);
 
+  // ---- Workspace state ----
   let runtimeId = $state<string | null>(null);
-  let connectedDb = $state<string | null>(null);
-  let error = $state<string | null>(null);
-
-  // --- Table / grid state ---
-  let schema = $state("public");
-  let table = $state("");
+  let activeConnectionName = $state<string | null>(null);
+  let schemas = $state<string[]>([]);
+  let schemaTables = $state<Record<string, string[]>>({});
+  let expandedSchemas = $state<Set<string>>(new Set());
+  let activeSchema = $state<string | null>(null);
+  let activeTable = $state<string | null>(null);
+  let grid = $state<GridPage | null>(null);
+  let workspaceError = $state<string | null>(null);
+  let workspaceBusy = $state(false);
   let limit = $state(50);
   let offset = $state(0);
-  let grid = $state<GridPage | null>(null);
-  let tableList = $state<string[]>([]);
-  let busy = $state(false);
 
-  // --- IPC actions ---
-  async function connect() {
-    error = null;
+  onMount(async () => {
+    await refreshConnections();
+  });
+
+  async function refreshConnections() {
+    connectionBusy = true;
+    connectionError = null;
     try {
-      const r = await pgConnect(cfg);
-      runtimeId = r.runtime_id;
-      connectedDb = cfg.database;
+      savedConnections = await connectionsList();
+      if (selectedId && !savedConnections.some((c) => c.id === selectedId)) {
+        selectedId = null;
+      }
     } catch (e) {
-      error = String(e);
+      connectionError = String(e);
+    } finally {
+      connectionBusy = false;
     }
   }
 
-  async function listTables() {
-    error = null;
-    tableList = [];
-    if (!runtimeId) {
-      error = "Not connected";
+  function selectConnection(conn: SavedConnection) {
+    selectedId = conn.id;
+    formName = conn.name;
+    cfg = {
+      ...conn.config,
+      password: "",
+    };
+    connectionNotice = null;
+    connectionError = null;
+  }
+
+  function resetForm() {
+    selectedId = null;
+    formName = "Local Postgres";
+    cfg = {
+      engine: "Postgres",
+      host: "127.0.0.1",
+      port: 5432,
+      database: "postgres",
+      username: "postgres",
+      password: "",
+      ssl_mode: "disable",
+    };
+    connectionNotice = null;
+    connectionError = null;
+  }
+
+  async function handleTest() {
+    connectionBusy = true;
+    connectionError = null;
+    connectionNotice = null;
+    try {
+      await connectionsTest(cfg, selectedId ?? undefined);
+      connectionNotice = "Connection OK";
+    } catch (e) {
+      connectionError = String(e);
+    } finally {
+      connectionBusy = false;
+    }
+  }
+
+  async function handleSave() {
+    connectionBusy = true;
+    connectionError = null;
+    connectionNotice = null;
+    try {
+      if (!formName.trim()) {
+        connectionError = "Connection name is required.";
+        return;
+      }
+      const input: SavedConnectionInput = { name: formName.trim(), config: cfg };
+      let saved: SavedConnection;
+      if (selectedId) {
+        const update: SavedConnectionUpdate = { id: selectedId, ...input };
+        saved = await connectionsUpdate(update);
+        connectionNotice = "Connection updated.";
+      } else {
+        saved = await connectionsSave(input);
+        connectionNotice = "Connection saved.";
+      }
+      await refreshConnections();
+      selectConnection(saved);
+    } catch (e) {
+      connectionError = String(e);
+    } finally {
+      connectionBusy = false;
+    }
+  }
+
+  async function handleDelete(id: SavedConnectionId) {
+    connectionBusy = true;
+    connectionError = null;
+    connectionNotice = null;
+    try {
+      await connectionsDelete(id);
+      await refreshConnections();
+      if (selectedId === id) {
+        resetForm();
+      }
+      connectionNotice = "Connection deleted.";
+    } catch (e) {
+      connectionError = String(e);
+    } finally {
+      connectionBusy = false;
+    }
+  }
+
+  async function handleConnect() {
+    connectionBusy = true;
+    connectionError = null;
+    connectionNotice = null;
+    try {
+      if (!selectedId) {
+        connectionError = "Select a saved connection to connect.";
+        return;
+      }
+      const result = await connectionsConnect(selectedId);
+      runtimeId = result.runtime_id;
+      activeConnectionName =
+        savedConnections.find((c) => c.id === selectedId)?.name ?? null;
+      await loadSchemas();
+    } catch (e) {
+      connectionError = String(e);
+    } finally {
+      connectionBusy = false;
+    }
+  }
+
+  async function loadSchemas() {
+    if (!runtimeId) return;
+    workspaceBusy = true;
+    workspaceError = null;
+    try {
+      schemas = await pgListSchemas(runtimeId);
+      if (schemas.length > 0 && !activeSchema) {
+        await toggleSchema(schemas[0]);
+      }
+    } catch (e) {
+      workspaceError = String(e);
+    } finally {
+      workspaceBusy = false;
+    }
+  }
+
+  async function toggleSchema(schema: string) {
+    const next = new Set(expandedSchemas);
+    if (next.has(schema)) {
+      next.delete(schema);
+      expandedSchemas = next;
       return;
     }
-    busy = true;
-    try {
-      tableList = await pgListTables(runtimeId, schema.trim() || "public");
-    } catch (e) {
-      error = String(e);
-    } finally {
-      busy = false;
+    next.add(schema);
+    expandedSchemas = next;
+    if (!schemaTables[schema] && runtimeId) {
+      try {
+        const tables = await pgListTables(runtimeId, schema);
+        schemaTables = { ...schemaTables, [schema]: tables };
+      } catch (e) {
+        workspaceError = String(e);
+      }
     }
+  }
+
+  async function selectTable(schema: string, table: string) {
+    activeSchema = schema;
+    activeTable = table;
+    await loadGrid();
   }
 
   async function loadGrid() {
-    error = null;
-    grid = null;
-    if (!runtimeId) {
-      error = "Not connected";
-      return;
-    }
-    if (!schema.trim() || !table.trim()) {
-      error = "Schema and table are required";
-      return;
-    }
-    busy = true;
+    if (!runtimeId || !activeSchema || !activeTable) return;
+    workspaceBusy = true;
+    workspaceError = null;
     try {
       const req: GridPageRequest = {
-        table: { schema: schema.trim(), name: table.trim() },
+        table: { schema: activeSchema, name: activeTable },
         limit,
         offset,
         order_by: null,
       };
       grid = await pgGridPage(runtimeId, req);
     } catch (e) {
-      error = String(e);
+      workspaceError = String(e);
     } finally {
-      busy = false;
+      workspaceBusy = false;
     }
   }
 
@@ -106,18 +255,18 @@
   }
 
   async function updateCell(row: unknown[], colName: string, newValue: string) {
-    if (!grid || !runtimeId) return;
-    error = null;
+    if (!grid || !runtimeId || !activeSchema || !activeTable) return;
+    workspaceError = null;
     if (grid.pk_columns.length === 0) {
-      error = "This table has no primary key. Editing is disabled.";
+      workspaceError = "This table has no primary key. Editing is disabled.";
       return;
     }
     if (grid.pk_columns.includes(colName)) {
-      error = "Editing primary key columns is disabled.";
+      workspaceError = "Editing primary key columns is disabled.";
       return;
     }
     const req: GridUpdateRequest = {
-      table: { schema: schema.trim(), name: table.trim() },
+      table: { schema: activeSchema, name: activeTable },
       pk: pkForRow(row),
       column: colName,
       value: newValue === "" ? null : newValue,
@@ -126,225 +275,444 @@
       await pgGridUpdate(runtimeId, req);
       await loadGrid();
     } catch (e) {
-      error = String(e);
+      workspaceError = String(e);
     }
+  }
+
+  function disconnect() {
+    runtimeId = null;
+    activeConnectionName = null;
+    schemas = [];
+    schemaTables = {};
+    expandedSchemas = new Set();
+    activeSchema = null;
+    activeTable = null;
+    grid = null;
+    workspaceError = null;
   }
 </script>
 
-<AppShell>
-  {#snippet sidebar()}
-    <!-- ===== SIDEBAR ===== -->
-    <div class="sidebar-inner">
-      <div class="sidebar-section">
-        <div class="sidebar-label">Connection</div>
-        <div class="field-grid">
-          <label for="cfg-host" class="field-label">Host</label>
-          <Input id="cfg-host" bind:value={cfg.host} placeholder="127.0.0.1" />
-
-          <label for="cfg-port" class="field-label">Port</label>
-          <Input id="cfg-port" type="number" bind:value={cfg.port} />
-
-          <label for="cfg-db" class="field-label">DB</label>
-          <Input id="cfg-db" bind:value={cfg.database} placeholder="postgres" />
-
-          <label for="cfg-user" class="field-label">User</label>
-          <Input id="cfg-user" bind:value={cfg.username} placeholder="postgres" />
-
-          <label for="cfg-pass" class="field-label">Pass</label>
-          <Input id="cfg-pass" type="password" bind:value={cfg.password} />
-        </div>
-
-        <Button variant="primary" onclick={connect}>Connect</Button>
-
-        {#if runtimeId}
-          <div class="conn-status conn-ok">● {connectedDb}</div>
-        {:else}
-          <div class="conn-status conn-none">Not connected</div>
-        {/if}
+{#if !runtimeId}
+  <div class="connection-screen">
+    <div class="connection-header">
+      <div>
+        <h1>Loka Connections</h1>
+        <p>Save database connections and connect with one click.</p>
       </div>
-
-      <div class="sidebar-divider"></div>
-
-      <div class="sidebar-section">
-        <div class="sidebar-label">Table</div>
-        <div class="field-grid">
-          <label for="in-schema" class="field-label">Schema</label>
-          <Input id="in-schema" bind:value={schema} placeholder="public" />
-
-          <label for="in-table" class="field-label">Table</label>
-          <Input id="in-table" bind:value={table} placeholder="users" />
-
-          <label for="in-limit" class="field-label">Limit</label>
-          <Input id="in-limit" type="number" bind:value={limit} />
-
-          <label for="in-offset" class="field-label">Offset</label>
-          <Input id="in-offset" type="number" bind:value={offset} />
-        </div>
-
-        <div class="btn-row">
-          <Button onclick={loadGrid} disabled={!runtimeId || busy}>Load</Button>
-          <Button onclick={listTables} disabled={!runtimeId || busy}>List</Button>
-        </div>
-
-        {#if tableList.length > 0}
-          <div class="table-list">
-            {#each tableList as t}
-              <button class="table-list-item" onclick={() => (table = t)}>{t}</button>
-            {/each}
-          </div>
-        {/if}
-      </div>
+      <Button onclick={resetForm}>New</Button>
     </div>
-  {/snippet}
 
-  <!-- ===== MAIN CONTENT ===== -->
-  <div class="main-inner">
-    <!-- Tab bar -->
-    <div class="tabbar">
-      <span class="tab tab-active">
-        {grid ? `${schema}.${table}` : "Grid"}
-      </span>
-      {#if grid}
-        <span class="tab-meta">
-          {grid.row_count} rows
-          {#if grid.pk_columns.length > 0}
-            · PK: {grid.pk_columns.join(", ")}
+    <div class="connection-body">
+      <Panel title="Saved Connections">
+        <div class="connections-list">
+          {#if savedConnections.length === 0}
+            <div class="empty-note">No saved connections yet.</div>
           {:else}
-            · no PK (read-only)
+            {#each savedConnections as conn}
+              <div class="connection-row">
+                <button
+                  type="button"
+                  class="connection-item {conn.id === selectedId ? 'selected' : ''}"
+                  onclick={() => selectConnection(conn)}
+                >
+                  <div class="connection-name">{conn.name}</div>
+                  <div class="connection-meta">
+                    {conn.config.username}@{conn.config.host}:{conn.config.port}
+                    <span>·</span>
+                    {conn.config.database}
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  class="inline-button"
+                  onclick={() => handleDelete(conn.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </Panel>
+
+      <Panel title="Connection Details">
+        <div class="form-grid">
+          <label for="conn-name">Name</label>
+          <Input id="conn-name" bind:value={formName} placeholder="Local Postgres" />
+
+          <label for="conn-host">Host</label>
+          <Input id="conn-host" bind:value={cfg.host} placeholder="127.0.0.1" />
+
+          <label for="conn-port">Port</label>
+          <Input id="conn-port" type="number" bind:value={cfg.port} />
+
+          <label for="conn-db">Database</label>
+          <Input id="conn-db" bind:value={cfg.database} placeholder="postgres" />
+
+          <label for="conn-user">User</label>
+          <Input id="conn-user" bind:value={cfg.username} placeholder="postgres" />
+
+          <label for="conn-pass">Password</label>
+          <Input id="conn-pass" type="password" bind:value={cfg.password} placeholder="(stored)" />
+        </div>
+
+        <div class="form-actions">
+          <Button onclick={handleTest} disabled={connectionBusy}>Test</Button>
+          <Button onclick={handleSave} disabled={connectionBusy} variant="primary">
+            {selectedId ? "Update" : "Save"}
+          </Button>
+          <Button onclick={handleConnect} disabled={connectionBusy}>
+            Connect
+          </Button>
+        </div>
+
+        {#if connectionError}
+          <div class="status error">⚠ {connectionError}</div>
+        {/if}
+        {#if connectionNotice}
+          <div class="status ok">● {connectionNotice}</div>
+        {/if}
+      </Panel>
+    </div>
+  </div>
+{:else}
+  <AppShell>
+    {#snippet sidebar()}
+      <div class="workspace-sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title">Workspace</div>
+          <div class="sidebar-meta">
+            {activeConnectionName ?? "Connected"}
+          </div>
+          <Button onclick={disconnect}>Disconnect</Button>
+        </div>
+
+        <div class="explorer">
+          {#if schemas.length === 0}
+            <div class="empty-note">No schemas found.</div>
+          {:else}
+            {#each schemas as schemaName}
+              <div class="schema-block">
+                <button
+                  class="schema-row"
+                  onclick={() => toggleSchema(schemaName)}
+                >
+                  <span>{schemaName}</span>
+                  <span class="schema-count">
+                    {schemaTables[schemaName]?.length ?? 0}
+                  </span>
+                </button>
+                {#if expandedSchemas.has(schemaName)}
+                  <div class="table-list">
+                    {#if schemaTables[schemaName]?.length}
+                      {#each schemaTables[schemaName] as tableName}
+                        <button
+                          class="table-row {activeSchema === schemaName && activeTable === tableName ? 'active' : ''}"
+                          onclick={() => selectTable(schemaName, tableName)}
+                        >
+                          {tableName}
+                        </button>
+                      {/each}
+                    {:else}
+                      <div class="empty-note small">No tables</div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    {/snippet}
+
+    <div class="main-inner">
+      <div class="tabbar">
+        <span class="tab tab-active">
+          {#if activeSchema && activeTable}
+            {activeSchema}.{activeTable}
+          {:else}
+            Grid
           {/if}
         </span>
-      {/if}
-    </div>
-
-    <!-- Error banner -->
-    {#if error}
-      <div class="error-banner">
-        <span>⚠ {error}</span>
-        <button class="error-close" onclick={() => (error = null)}>✕</button>
-      </div>
-    {/if}
-
-    <!-- No PK warning -->
-    {#if grid && grid.pk_columns.length === 0}
-      <div class="warn-banner">
-        This table has no primary key — cells are read-only.
-      </div>
-    {/if}
-
-    <!-- Grid -->
-    {#if grid}
-      <div class="grid-scroll">
-        <table class="data-table">
-          <thead>
-            <tr>
-              {#each grid.columns as c}
-                <th class:pk-col={grid.pk_columns.includes(c.name)}>
-                  {c.name}
-                  <span class="col-type">{c.type_name}</span>
-                </th>
-              {/each}
-            </tr>
-          </thead>
-          <tbody>
-            {#each grid.rows as row}
-              <tr>
-                {#each grid.columns as c, i}
-                  <td class:pk-cell={grid.pk_columns.includes(c.name)}>
-                    {#if grid.pk_columns.length > 0 && !grid.pk_columns.includes(c.name)}
-                      <input
-                        class="cell-input"
-                        value={row[i] === null ? "" : String(row[i])}
-                        onblur={(e) =>
-                          updateCell(
-                            row,
-                            c.name,
-                            (e.currentTarget as HTMLInputElement).value,
-                          )}
-                      />
-                    {:else}
-                      <span class="cell-value" data-selectable>
-                        {row[i] === null ? "NULL" : String(row[i])}
-                      </span>
-                    {/if}
-                  </td>
-                {/each}
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {:else}
-      <div class="empty-state">
-        {#if !runtimeId}
-          Connect to a Postgres database to get started.
-        {:else}
-          Enter a schema and table name, then click <strong>Load</strong>.
+        {#if grid}
+          <span class="tab-meta">
+            {grid.row_count} rows
+            {#if grid.pk_columns.length > 0}
+              · PK: {grid.pk_columns.join(", ")}
+            {:else}
+              · no PK
+            {/if}
+          </span>
         {/if}
       </div>
-    {/if}
-  </div>
-</AppShell>
+
+      <div class="workspace-toolbar">
+        <div class="toolbar-group">
+          <label for="limit-input">Limit</label>
+          <Input id="limit-input" type="number" bind:value={limit} />
+        </div>
+        <div class="toolbar-group">
+          <label for="offset-input">Offset</label>
+          <Input id="offset-input" type="number" bind:value={offset} />
+        </div>
+        <Button onclick={loadGrid} disabled={!activeTable || workspaceBusy}>
+          Reload
+        </Button>
+      </div>
+
+      {#if workspaceError}
+        <div class="error-banner">
+          <span>⚠ {workspaceError}</span>
+          <button class="error-close" onclick={() => (workspaceError = null)}>
+            ✕
+          </button>
+        </div>
+      {/if}
+
+      {#if grid && grid.pk_columns.length === 0}
+        <div class="warn-banner">
+          This table has no primary key — cells are read-only.
+        </div>
+      {/if}
+
+      {#if grid}
+        <div class="grid-scroll">
+          <table class="data-table">
+            <thead>
+              <tr>
+                {#each grid.columns as c}
+                  <th class:pk-col={grid.pk_columns.includes(c.name)}>
+                    {c.name}
+                    <span class="col-type">{c.type_name}</span>
+                  </th>
+                {/each}
+              </tr>
+            </thead>
+            <tbody>
+              {#each grid.rows as row}
+                <tr>
+                  {#each grid.columns as c, i}
+                    <td class:pk-cell={grid.pk_columns.includes(c.name)}>
+                      {#if grid.pk_columns.length > 0 && !grid.pk_columns.includes(c.name)}
+                        <input
+                          class="cell-input"
+                          value={row[i] === null ? "" : String(row[i])}
+                          onblur={(e) =>
+                            updateCell(
+                              row,
+                              c.name,
+                              (e.currentTarget as HTMLInputElement).value,
+                            )}
+                        />
+                      {:else}
+                        <span class="cell-value" data-selectable>
+                          {row[i] === null ? "NULL" : String(row[i])}
+                        </span>
+                      {/if}
+                    </td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <div class="empty-state">
+          {#if workspaceBusy}
+            Loading…
+          {:else}
+            Select a table in the sidebar to view data.
+          {/if}
+        </div>
+      {/if}
+    </div>
+  </AppShell>
+{/if}
 
 <style>
-  /* ---- Sidebar ---- */
-  .sidebar-inner {
+  .connection-screen {
+    padding: var(--space-8);
     display: flex;
     flex-direction: column;
-    gap: 0;
-    height: 100%;
-    padding-top: var(--space-2);
+    gap: var(--space-6);
+    height: calc(100vh - var(--topbar-height));
+    overflow: auto;
   }
 
-  .sidebar-section {
+  .connection-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+  }
+
+  .connection-header h1 {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    margin-bottom: var(--space-1);
+  }
+
+  .connection-header p {
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .connection-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-6);
+  }
+
+  .connections-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    padding: var(--space-3) var(--space-3);
   }
 
-  .sidebar-label {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--color-text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-
-  .sidebar-divider {
-    height: 1px;
-    background: var(--color-divider);
-    margin: var(--space-1) 0;
-  }
-
-  .field-grid {
+  .connection-row {
     display: grid;
-    grid-template-columns: 48px 1fr;
+    grid-template-columns: 1fr auto;
+    gap: var(--space-2);
     align-items: center;
-    gap: 5px var(--space-2);
   }
 
-  .field-label {
+  .connection-item {
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+    display: grid;
+    gap: 2px;
+    cursor: pointer;
+    background: var(--color-bg);
+    text-align: left;
+    width: 100%;
+  }
+
+  .connection-item.selected {
+    border-color: var(--color-accent);
+    background: var(--color-accent-subtle);
+  }
+
+  .connection-name {
+    font-weight: 600;
+    font-size: var(--text-sm);
+  }
+
+  .connection-meta {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
-    text-align: right;
-  }
-
-  .btn-row {
     display: flex;
     gap: var(--space-2);
+    align-items: center;
   }
 
-  .conn-status {
+  .inline-button {
+    background: none;
+    border: none;
+    color: var(--color-text-faint);
     font-size: var(--text-xs);
-    padding: 2px 0;
+    cursor: pointer;
   }
 
-  .conn-ok {
+  .inline-button:hover {
+    color: var(--color-error-text);
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: var(--space-2);
+    align-items: center;
+  }
+
+  .form-actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+
+  .status {
+    margin-top: var(--space-3);
+    font-size: var(--text-sm);
+  }
+
+  .status.ok {
     color: var(--color-ok-text);
-    font-weight: 500;
   }
 
-  .conn-none {
+  .status.error {
+    color: var(--color-error-text);
+  }
+
+  .empty-note {
+    font-size: var(--text-sm);
+    color: var(--color-text-faint);
+  }
+
+  .empty-note.small {
+    font-size: var(--text-xs);
+    padding: var(--space-1) 0;
+  }
+
+  .workspace-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    height: 100%;
+  }
+
+  .sidebar-header {
+    display: grid;
+    gap: var(--space-1);
+  }
+
+  .sidebar-title {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+    letter-spacing: 0.08em;
+  }
+
+  .sidebar-meta {
+    font-size: var(--text-sm);
+    color: var(--color-text-muted);
+  }
+
+  .explorer {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    overflow-y: auto;
+  }
+
+  .schema-block {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .schema-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    background: none;
+    border: none;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .schema-row:hover {
+    background: var(--color-accent-subtle);
+    color: var(--color-accent);
+  }
+
+  .schema-count {
+    font-size: var(--text-xs);
     color: var(--color-text-faint);
   }
 
@@ -352,36 +720,26 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: 200px;
-    overflow-y: auto;
-    background: var(--color-bg);
-    border: var(--border);
-    border-radius: var(--radius-sm);
-    padding: var(--space-1);
+    padding-left: var(--space-2);
   }
 
-  .table-list-item {
-    display: block;
-    width: 100%;
-    text-align: left;
+  .table-row {
     background: none;
     border: none;
+    text-align: left;
+    padding: 2px var(--space-2);
     font-size: var(--text-xs);
-    color: var(--color-text);
-    padding: 3px var(--space-2);
-    border-radius: 3px;
+    color: var(--color-text-muted);
+    border-radius: var(--radius-sm);
     cursor: pointer;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
-  .table-list-item:hover {
-    background: var(--color-accent-subtle);
+  .table-row.active,
+  .table-row:hover {
     color: var(--color-accent);
+    background: var(--color-accent-subtle);
   }
 
-  /* ---- Main ---- */
   .main-inner {
     display: flex;
     flex-direction: column;
@@ -418,38 +776,27 @@
     color: var(--color-text-faint);
   }
 
-  /* ---- Banners ---- */
-  .error-banner {
+  .workspace-toolbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: var(--space-3);
     padding: var(--space-2) var(--space-4);
-    background: var(--color-error-bg);
-    color: var(--color-error-text);
-    font-size: var(--text-sm);
-    border-bottom: 1px solid var(--color-error-text);
+    border-bottom: var(--border);
+    background: var(--color-bg);
   }
 
-  .error-close {
-    background: none;
-    border: none;
-    color: inherit;
-    font-size: var(--text-base);
-    cursor: pointer;
-    opacity: 0.7;
-    padding: 0 var(--space-1);
-    line-height: 1;
-  }
-
-  .warn-banner {
-    padding: var(--space-2) var(--space-4);
-    background: var(--color-warn-bg);
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
     color: var(--color-text-muted);
-    font-size: var(--text-sm);
-    border-bottom: 1px solid var(--color-warn-border);
   }
 
-  /* ---- Data grid ---- */
+  .toolbar-group :global(input) {
+    width: 80px;
+  }
+
   .grid-scroll {
     flex: 1;
     overflow: auto;
@@ -528,7 +875,36 @@
     box-shadow: 0 0 0 2px var(--color-accent-subtle);
   }
 
-  /* ---- Empty state ---- */
+  .error-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-error-bg);
+    color: var(--color-error-text);
+    font-size: var(--text-sm);
+    border-bottom: 1px solid var(--color-error-text);
+  }
+
+  .error-close {
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: var(--text-base);
+    cursor: pointer;
+    opacity: 0.7;
+    padding: 0 var(--space-1);
+    line-height: 1;
+  }
+
+  .warn-banner {
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-warn-bg);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+    border-bottom: 1px solid var(--color-warn-border);
+  }
+
   .empty-state {
     flex: 1;
     display: flex;
@@ -538,5 +914,11 @@
     font-size: var(--text-base);
     text-align: center;
     padding: var(--space-8);
+  }
+
+  @media (max-width: 1000px) {
+    .connection-body {
+      grid-template-columns: 1fr;
+    }
   }
 </style>

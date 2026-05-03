@@ -12,6 +12,25 @@ export interface ConnectionConfig {
   ssl_mode: string;
 }
 
+export type SavedConnectionId = string;
+
+export interface SavedConnection {
+  id: SavedConnectionId;
+  name: string;
+  config: ConnectionConfig;
+}
+
+export interface SavedConnectionInput {
+  name: string;
+  config: ConnectionConfig;
+}
+
+export interface SavedConnectionUpdate {
+  id: SavedConnectionId;
+  name: string;
+  config: ConnectionConfig;
+}
+
 export interface EngineCapabilities {
   sql: boolean;
   introspection: boolean;

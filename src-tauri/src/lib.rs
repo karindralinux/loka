@@ -1,3 +1,5 @@
+mod connection_store;
+
 use once_cell::sync::Lazy;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -15,11 +17,19 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            connections_list,
+            connections_get,
+            connections_save,
+            connections_update,
+            connections_delete,
+            connections_test,
+            connections_connect,
             pg_test_connection,
             pg_connect,
             pg_execute_sql,
             pg_grid_page,
             pg_grid_update,
+            pg_list_schemas,
             pg_list_tables,
         ])
         .run(tauri::generate_context!())
@@ -34,6 +44,83 @@ fn ping(name: String) -> String {
 static PG: Lazy<loka_postgres::manager::ConnectionManager> =
     Lazy::new(loka_postgres::manager::ConnectionManager::new);
 
+fn sanitize_connection(mut conn: loka_core::SavedConnection) -> loka_core::SavedConnection {
+    conn.config.password = String::new();
+    conn
+}
+
+#[tauri::command]
+async fn connections_list(
+    app: tauri::AppHandle,
+) -> Result<Vec<loka_core::SavedConnection>, String> {
+    let list = connection_store::list_connections(&app)?;
+    Ok(list.into_iter().map(sanitize_connection).collect())
+}
+
+#[tauri::command]
+async fn connections_get(
+    app: tauri::AppHandle,
+    id: loka_core::SavedConnectionId,
+) -> Result<loka_core::SavedConnection, String> {
+    let conn = connection_store::get_connection(&app, id)?;
+    Ok(sanitize_connection(conn))
+}
+
+#[tauri::command]
+async fn connections_save(
+    app: tauri::AppHandle,
+    input: loka_core::SavedConnectionInput,
+) -> Result<loka_core::SavedConnection, String> {
+    let conn = connection_store::save_connection(&app, input)?;
+    Ok(sanitize_connection(conn))
+}
+
+#[tauri::command]
+async fn connections_update(
+    app: tauri::AppHandle,
+    input: loka_core::SavedConnectionUpdate,
+) -> Result<loka_core::SavedConnection, String> {
+    let conn = connection_store::update_connection(&app, input)?;
+    Ok(sanitize_connection(conn))
+}
+
+#[tauri::command]
+async fn connections_delete(
+    app: tauri::AppHandle,
+    id: loka_core::SavedConnectionId,
+) -> Result<bool, String> {
+    connection_store::delete_connection(&app, id)
+}
+
+#[tauri::command]
+async fn connections_test(
+    app: tauri::AppHandle,
+    input: loka_core::ConnectionConfig,
+    id: Option<loka_core::SavedConnectionId>,
+) -> Result<(), String> {
+    let cfg = connection_store::merge_password_from_store(&app, input, id)?;
+    loka_postgres::manager::ConnectionManager::test_connection(&cfg)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn connections_connect(
+    app: tauri::AppHandle,
+    id: loka_core::SavedConnectionId,
+) -> Result<loka_core::ConnectResult, String> {
+    let conn = connection_store::get_connection(&app, id)?;
+    let runtime_id = PG.connect(&conn.config).await.map_err(|e| e.to_string())?;
+    Ok(loka_core::ConnectResult {
+        runtime_id: runtime_id.0.to_string(),
+        capabilities: loka_core::EngineCapabilities {
+            sql: true,
+            introspection: true,
+            editable_grid: true,
+        },
+    })
+}
+
 #[tauri::command]
 async fn pg_list_tables(runtime_id: String, schema: String) -> Result<Vec<String>, String> {
     let id = loka_core::ConnectionId(
@@ -42,6 +129,16 @@ async fn pg_list_tables(runtime_id: String, schema: String) -> Result<Vec<String
             .map_err(|e| format!("invalid runtime_id: {e}"))?,
     );
     PG.list_tables(&id, &schema).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn pg_list_schemas(runtime_id: String) -> Result<Vec<String>, String> {
+    let id = loka_core::ConnectionId(
+        runtime_id
+            .parse()
+            .map_err(|e| format!("invalid runtime_id: {e}"))?,
+    );
+    PG.list_schemas(&id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

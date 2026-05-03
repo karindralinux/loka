@@ -11,6 +11,15 @@ impl ConnectionId {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct SavedConnectionId(pub Uuid);
+
+impl SavedConnectionId {
+    pub fn new() -> Self {
+        Self(Uuid::now_v7())
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum EngineType {
     Postgres,
@@ -38,6 +47,26 @@ pub struct ConnectionConfig {
     pub username: String,
     pub password: String,
     pub ssl_mode: String, // keep as string for now ("disable", "prefer", etc)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedConnection {
+    pub id: SavedConnectionId,
+    pub name: String,
+    pub config: ConnectionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedConnectionInput {
+    pub name: String,
+    pub config: ConnectionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SavedConnectionUpdate {
+    pub id: SavedConnectionId,
+    pub name: String,
+    pub config: ConnectionConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
