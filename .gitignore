@@ -1,0 +1,72 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.test
+
+# SvelteKit
+.svelte-kit/
+/build/
+/package/
+
+# Rust
+**/target/
+
+**/*.rs.bk
+Cargo.lock
+# (Note: Keep Cargo.lock at the root, but maybe ignore in crates if they are libraries. 
+# However, usually we keep it for binary projects. Since this is a Tauri app, we keep the root one.)
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/binaries/
+
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+
+# IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+!.vscode/tasks.json
+.idea/
+*.iml
+*.sublime-project
+*.sublime-workspace
+
+# Output/Builds
+dist/
+tmp/
+out/
+.output/
+.vercel/
+.netlify/
+.wrangler/
+
+# Logs
+logs/
+*.log
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Testing
+coverage/
+.nyc_output/
+
+

@@ -1,0 +1,12 @@
+[package]
+name = "loka-postgres"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+loka-core = { path = "../loka-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio-postgres = "0.7"
+dashmap = "6"
+tracing = "0.1"
+serde_json = "1"
